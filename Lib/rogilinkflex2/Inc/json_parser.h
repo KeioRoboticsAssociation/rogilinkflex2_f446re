@@ -63,6 +63,13 @@ void json_build_float(char *buffer, size_t buffer_size, int *pos,
 void json_build_bool(char *buffer, size_t buffer_size, int *pos, 
                     const char *key, bool value);
 
+// Enhanced array parsing functions
+json_token_t* json_find_array_element(const char* js, json_token_t* tokens, int num_tokens, 
+                                     const char* array_key, int element_index);
+int json_count_array_elements(json_token_t* array_token);
+bool json_is_array_element(const char* js, json_token_t* tokens, int token_index,
+                          const char* parent_array_key, int expected_index);
+
 #ifdef __cplusplus
 }
 #endif

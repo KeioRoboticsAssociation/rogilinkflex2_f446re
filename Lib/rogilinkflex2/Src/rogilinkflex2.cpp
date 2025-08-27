@@ -196,65 +196,26 @@ void process_configuration_message(const char* json_str) {
     json_init(&parser);
     int token_count = json_parse(&parser, json_str, strlen(json_str), tokens, JSON_MAX_TOKENS);
     
-    if (token_count < 0) return;
-    
-    // Find periodic_requests array
-    json_token_t* requests_token = json_find_token(json_str, tokens, token_count, "periodic_requests");
-    if (!requests_token || requests_token->type != JSON_ARRAY) {
+    if (token_count < 0) {
+        handle_communication_error("Failed to parse configuration JSON");
         return;
     }
     
-    // Clear existing periodic requests
-    periodic_request_count = 0;
-    memset(periodic_requests, 0, sizeof(periodic_requests));
-    
-    // For now, add default periodic requests based on specification
-    // Motor angle and speed monitoring
-    if (periodic_request_count < MAX_PERIODIC_REQUESTS) {
-        periodic_request_t* req = &periodic_requests[periodic_request_count];
-        strcpy(req->request_name, "motor_angle_speed");
-        req->instance_ids[0] = 0;  // dynamixel_1
-        req->instance_ids[1] = 1;  // dynamixel_2  
-        req->instance_ids[2] = 2;  // robomaster_1
-        req->instance_count = 3;
-        req->data_count = 2;
-        strcpy(req->data_names[0], "angle");
-        strcpy(req->data_names[1], "speed");
-        req->interval_ms = 500;
-        req->next_send_time = HAL_GetTick() + req->interval_ms;
-        req->active = true;
-        periodic_request_count++;
+    // Parse and apply periodic requests configuration
+    if (!parse_periodic_requests_config(json_str)) {
+        handle_communication_error("Failed to parse periodic requests configuration");
+        return;
     }
     
-    // Temperature sensor monitoring
-    if (periodic_request_count < MAX_PERIODIC_REQUESTS) {
-        periodic_request_t* req = &periodic_requests[periodic_request_count];
-        strcpy(req->request_name, "sensor_temperature");
-        req->instance_ids[0] = 3;  // temp_sensor_1
-        req->instance_count = 1;
-        req->data_count = 1;
-        strcpy(req->data_names[0], "temperature");
-        req->interval_ms = 1000;
-        req->next_send_time = HAL_GetTick() + req->interval_ms;
-        req->active = true;
-        periodic_request_count++;
-    }
-    
-    // Encoder position and velocity monitoring
-    if (periodic_request_count < MAX_PERIODIC_REQUESTS) {
-        periodic_request_t* req = &periodic_requests[periodic_request_count];
-        strcpy(req->request_name, "encoder_position");
-        req->instance_ids[0] = 4;  // encoder_left
-        req->instance_ids[1] = 5;  // encoder_right
-        req->instance_count = 2;
-        req->data_count = 2;
-        strcpy(req->data_names[0], "position");
-        strcpy(req->data_names[1], "velocity");
-        req->interval_ms = 100;
-        req->next_send_time = HAL_GetTick() + req->interval_ms;
-        req->active = true;
-        periodic_request_count++;
-    }
+    // Send confirmation response
+    char response[MAX_JSON_SIZE];
+    int pos = 0;
+    json_build_object_start(response, MAX_JSON_SIZE, &pos);
+    json_build_string(response, MAX_JSON_SIZE, &pos, "type", "configuration_ack");
+    json_build_int(response, MAX_JSON_SIZE, &pos, "periodic_requests_count", periodic_request_count);
+    json_build_string(response, MAX_JSON_SIZE, &pos, "status", "success");
+    json_build_object_end(response, MAX_JSON_SIZE, &pos);
+    uart_send_json(response);
 }
 
 void process_read_message(const char* json_str) {
@@ -403,6 +364,35 @@ void add_periodic_request(const char* request_name, const uint8_t* instance_ids,
         req->instance_ids[i] = instance_ids[i];
     }
     req->instance_count = instance_count;
+    req->data_count = 1;  // Default single data type
+    strcpy(req->data_names[0], "value");
+    req->interval_ms = interval_ms;
+    req->next_send_time = HAL_GetTick() + interval_ms;
+    req->active = true;
+    
+    periodic_request_count++;
+}
+
+void add_periodic_request_multi(const char* request_name, const uint8_t* instance_ids,
+                               uint8_t instance_count, const char data_names[][16],
+                               uint8_t data_count, uint32_t interval_ms) {
+    if (periodic_request_count >= MAX_PERIODIC_REQUESTS) {
+        return;
+    }
+    
+    periodic_request_t* req = &periodic_requests[periodic_request_count];
+    strcpy(req->request_name, request_name);
+    
+    for (uint8_t i = 0; i < instance_count && i < 16; i++) {
+        req->instance_ids[i] = instance_ids[i];
+    }
+    req->instance_count = instance_count;
+    
+    for (uint8_t i = 0; i < data_count && i < 8; i++) {
+        strcpy(req->data_names[i], data_names[i]);
+    }
+    req->data_count = data_count;
+    
     req->interval_ms = interval_ms;
     req->next_send_time = HAL_GetTick() + interval_ms;
     req->active = true;
@@ -515,4 +505,253 @@ static bool simulate_device_write(uint8_t device_id, const char* data_type, floa
     // For simulation, all writes succeed
     // In a real implementation, this would communicate with actual devices
     return true;
+}
+
+// ========== ENHANCED CONFIGURATION PARSING ==========
+
+bool parse_periodic_requests_config(const char* json_str) {
+    json_parser_t parser;
+    json_token_t tokens[JSON_MAX_TOKENS];
+    
+    json_init(&parser);
+    int token_count = json_parse(&parser, json_str, strlen(json_str), tokens, JSON_MAX_TOKENS);
+    
+    if (token_count < 0) return false;
+    
+    // Find periodic_requests array
+    json_token_t* requests_token = json_find_token(json_str, tokens, token_count, "periodic_requests");
+    if (!requests_token || requests_token->type != JSON_ARRAY) {
+        return false;
+    }
+    
+    // Clear existing periodic requests
+    clear_all_periodic_requests();
+    
+    // Parse each periodic request in the array
+    int array_size = json_get_array_size(requests_token);
+    for (int i = 0; i < array_size && periodic_request_count < MAX_PERIODIC_REQUESTS; i++) {
+        json_token_t* request_obj = json_get_array_element(json_str, requests_token, i);
+        if (!request_obj || request_obj->type != JSON_OBJECT) {
+            continue;
+        }
+        
+        // Parse individual request object
+        char request_name[32];
+        uint8_t instance_ids[16];
+        uint8_t instance_count = 0;
+        char data_names[8][16];
+        uint8_t data_count = 0;
+        uint32_t interval_ms = 1000; // Default interval
+        
+        // Extract request name
+        json_token_t* name_token = json_find_token(json_str, tokens, token_count, "request");
+        if (name_token && name_token->type == JSON_STRING) {
+            json_get_string(json_str, name_token, request_name, sizeof(request_name));
+        } else {
+            continue; // Skip if no request name
+        }
+        
+        // Extract instance IDs array
+        json_token_t* ids_token = json_find_token(json_str, tokens, token_count, "instance_ids");
+        if (ids_token && ids_token->type == JSON_ARRAY) {
+            if (!json_parse_int_array(json_str, ids_token, instance_ids, 16, &instance_count)) {
+                continue;
+            }
+        } else {
+            continue; // Skip if no instance IDs
+        }
+        
+        // Extract data names array
+        json_token_t* data_names_token = json_find_token(json_str, tokens, token_count, "data_names");
+        if (data_names_token && data_names_token->type == JSON_ARRAY) {
+            if (!json_parse_string_array(json_str, data_names_token, data_names, 8, &data_count)) {
+                continue;
+            }
+        } else {
+            data_count = 1;
+            strcpy(data_names[0], "value"); // Default data name
+        }
+        
+        // Extract interval
+        json_token_t* interval_token = json_find_token(json_str, tokens, token_count, "interval_ms");
+        if (interval_token && interval_token->type == JSON_PRIMITIVE) {
+            interval_ms = (uint32_t)json_get_int(json_str, interval_token);
+        }
+        
+        // Validate and add the periodic request
+        if (validate_periodic_request(request_name, instance_ids, instance_count, data_names, data_count, interval_ms)) {
+            add_periodic_request_from_config(request_name, instance_ids, instance_count, data_names, data_count, interval_ms);
+        }
+    }
+    
+    return true;
+}
+
+bool validate_periodic_request(const char* request_name, const uint8_t* instance_ids, 
+                              uint8_t instance_count, const char data_names[][16],
+                              uint8_t data_count, uint32_t interval_ms) {
+    // Validate request name
+    if (!request_name || strlen(request_name) == 0 || strlen(request_name) >= 32) {
+        return false;
+    }
+    
+    // Validate instance count
+    if (instance_count == 0 || instance_count > 16) {
+        return false;
+    }
+    
+    // Validate data count
+    if (data_count == 0 || data_count > 8) {
+        return false;
+    }
+    
+    // Validate interval
+    if (interval_ms < 10 || interval_ms > 60000) { // 10ms to 60s range
+        return false;
+    }
+    
+    // Validate that all instance IDs refer to active devices
+    for (uint8_t i = 0; i < instance_count; i++) {
+        device_instance_t* device = rogilinkflex2_get_device(instance_ids[i]);
+        if (!device || !device->active) {
+            return false;
+        }
+    }
+    
+    // Validate data names are not empty
+    for (uint8_t i = 0; i < data_count; i++) {
+        if (strlen(data_names[i]) == 0) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+void clear_all_periodic_requests(void) {
+    periodic_request_count = 0;
+    memset(periodic_requests, 0, sizeof(periodic_requests));
+}
+
+bool add_periodic_request_from_config(const char* request_name, const uint8_t* instance_ids,
+                                     uint8_t instance_count, const char data_names[][16],
+                                     uint8_t data_count, uint32_t interval_ms) {
+    if (periodic_request_count >= MAX_PERIODIC_REQUESTS) {
+        return false;
+    }
+    
+    periodic_request_t* req = &periodic_requests[periodic_request_count];
+    
+    // Copy request name
+    strncpy(req->request_name, request_name, sizeof(req->request_name) - 1);
+    req->request_name[sizeof(req->request_name) - 1] = '\0';
+    
+    // Copy instance IDs
+    for (uint8_t i = 0; i < instance_count && i < 16; i++) {
+        req->instance_ids[i] = instance_ids[i];
+    }
+    req->instance_count = instance_count;
+    
+    // Copy data names
+    for (uint8_t i = 0; i < data_count && i < 8; i++) {
+        strncpy(req->data_names[i], data_names[i], sizeof(req->data_names[i]) - 1);
+        req->data_names[i][sizeof(req->data_names[i]) - 1] = '\0';
+    }
+    req->data_count = data_count;
+    
+    // Set timing and activation
+    req->interval_ms = interval_ms;
+    req->next_send_time = HAL_GetTick() + interval_ms;
+    req->active = true;
+    
+    periodic_request_count++;
+    return true;
+}
+
+// ========== JSON ARRAY PARSING HELPERS ==========
+
+json_token_t* json_get_array_element(const char* json_str, json_token_t* array_token, int index) {
+    if (!array_token || array_token->type != JSON_ARRAY || index < 0) {
+        return NULL;
+    }
+    
+    if (index >= array_token->size) {
+        return NULL;
+    }
+    
+    // Find the element at the specified index by traversing children
+    // This assumes tokens are ordered and children follow parents
+    int array_token_index = array_token - (json_token_t*)0; // Get token index (simplified)
+    int current_element = 0;
+    
+    // Start from the token right after the array token
+    json_token_t* current_token = array_token + 1;
+    
+    for (int i = 0; i < 100 && current_token; i++) { // Safety limit
+        if (current_token->parent == array_token_index) {
+            if (current_element == index) {
+                return current_token;
+            }
+            current_element++;
+        }
+        current_token++;
+        
+        // Safety check - don't go beyond array bounds
+        if (current_token->start >= array_token->end) {
+            break;
+        }
+    }
+    
+    return NULL;
+}
+
+int json_get_array_size(json_token_t* array_token) {
+    if (!array_token || array_token->type != JSON_ARRAY) {
+        return 0;
+    }
+    return array_token->size;
+}
+
+bool json_parse_string_array(const char* json_str, json_token_t* array_token, 
+                            char result[][16], uint8_t max_count, uint8_t* actual_count) {
+    if (!array_token || array_token->type != JSON_ARRAY || !result || !actual_count) {
+        return false;
+    }
+    
+    int array_size = json_get_array_size(array_token);
+    *actual_count = 0;
+    
+    for (int i = 0; i < array_size && *actual_count < max_count; i++) {
+        json_token_t* element = json_get_array_element(json_str, array_token, i);
+        if (element && element->type == JSON_STRING) {
+            if (json_get_string(json_str, element, result[*actual_count], 16) > 0) {
+                (*actual_count)++;
+            }
+        }
+    }
+    
+    return *actual_count > 0;
+}
+
+bool json_parse_int_array(const char* json_str, json_token_t* array_token,
+                         uint8_t* result, uint8_t max_count, uint8_t* actual_count) {
+    if (!array_token || array_token->type != JSON_ARRAY || !result || !actual_count) {
+        return false;
+    }
+    
+    int array_size = json_get_array_size(array_token);
+    *actual_count = 0;
+    
+    for (int i = 0; i < array_size && *actual_count < max_count; i++) {
+        json_token_t* element = json_get_array_element(json_str, array_token, i);
+        if (element && element->type == JSON_PRIMITIVE) {
+            int value = json_get_int(json_str, element);
+            if (value >= 0 && value <= 255) {
+                result[*actual_count] = (uint8_t)value;
+                (*actual_count)++;
+            }
+        }
+    }
+    
+    return *actual_count > 0;
 }

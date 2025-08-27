@@ -393,3 +393,67 @@ void json_build_bool(char *buffer, size_t buffer_size, int *pos,
         *pos += len;
     }
 }
+
+// ========== ENHANCED ARRAY PARSING FUNCTIONS ==========
+
+json_token_t* json_find_array_element(const char* js, json_token_t* tokens, int num_tokens,
+                                     const char* array_key, int element_index) {
+    if (!js || !tokens || !array_key || element_index < 0) {
+        return NULL;
+    }
+    
+    // First find the array token
+    json_token_t* array_token = json_find_token(js, tokens, num_tokens, array_key);
+    if (!array_token || array_token->type != JSON_ARRAY) {
+        return NULL;
+    }
+    
+    // Check if element index is within bounds
+    if (element_index >= array_token->size) {
+        return NULL;
+    }
+    
+    // Find the array token's position in the tokens array
+    int array_token_index = array_token - tokens;
+    
+    // Navigate to the requested element
+    // In a proper JSON parser, we need to traverse children
+    int current_element = 0;
+    for (int i = array_token_index + 1; i < num_tokens; i++) {
+        json_token_t* token = &tokens[i];
+        
+        // Check if this token is a direct child of our array
+        if (token->parent == array_token_index) {
+            if (current_element == element_index) {
+                return token;
+            }
+            current_element++;
+        }
+        
+        // If we've gone past the array, stop searching
+        if (token->start >= array_token->end) {
+            break;
+        }
+    }
+    
+    return NULL;
+}
+
+int json_count_array_elements(json_token_t* array_token) {
+    if (!array_token || array_token->type != JSON_ARRAY) {
+        return 0;
+    }
+    return array_token->size;
+}
+
+bool json_is_array_element(const char* js, json_token_t* tokens, int token_index,
+                          const char* parent_array_key, int expected_index) {
+    if (!js || !tokens || !parent_array_key || token_index < 0 || expected_index < 0) {
+        return false;
+    }
+    
+    json_token_t* element = json_find_array_element(js, tokens, JSON_MAX_TOKENS,
+                                                   parent_array_key, expected_index);
+    
+    return (element == &tokens[token_index]);
+}

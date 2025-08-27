@@ -77,6 +77,24 @@ void process_configuration_message(const char* json_str);
 void process_read_message(const char* json_str);
 void process_write_message(const char* json_str);
 
+// Enhanced configuration parsing
+bool parse_periodic_requests_config(const char* json_str);
+bool validate_periodic_request(const char* request_name, const uint8_t* instance_ids, 
+                              uint8_t instance_count, const char data_names[][16],
+                              uint8_t data_count, uint32_t interval_ms);
+void clear_all_periodic_requests(void);
+bool add_periodic_request_from_config(const char* request_name, const uint8_t* instance_ids,
+                                     uint8_t instance_count, const char data_names[][16],
+                                     uint8_t data_count, uint32_t interval_ms);
+
+// JSON array parsing helpers
+json_token_t* json_get_array_element(const char* json_str, json_token_t* array_token, int index);
+int json_get_array_size(json_token_t* array_token);
+bool json_parse_string_array(const char* json_str, json_token_t* array_token, 
+                            char result[][16], uint8_t max_count, uint8_t* actual_count);
+bool json_parse_int_array(const char* json_str, json_token_t* array_token,
+                         uint8_t* result, uint8_t max_count, uint8_t* actual_count);
+
 // Device interface functions
 float read_device_data(uint8_t device_id, const char* data_type);
 bool write_device_data(uint8_t device_id, const char* data_type, float value);
@@ -90,6 +108,9 @@ void periodic_task_init(void);
 void periodic_task_process(void);
 void add_periodic_request(const char* request_name, const uint8_t* instance_ids, 
                          uint8_t instance_count, uint32_t interval_ms);
+void add_periodic_request_multi(const char* request_name, const uint8_t* instance_ids,
+                               uint8_t instance_count, const char data_names[][16],
+                               uint8_t data_count, uint32_t interval_ms);
 
 // Error handling
 void handle_communication_error(const char* error_msg);
