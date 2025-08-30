@@ -4,6 +4,14 @@
 
 extern UART_HandleTypeDef huart2;
 
+// Function to send debug messages
+void send_debug_message(const char* message) {
+    char debug_json[256];
+    snprintf(debug_json, sizeof(debug_json), 
+             "{\"type\":\"debug\",\"message\":\"%s\"}\n", message);
+    HAL_UART_Transmit(&huart2, (uint8_t*)debug_json, strlen(debug_json), HAL_MAX_DELAY);
+}
+
 void test_setup() {
     // Initialize RogiLinkFlex2 communication system
     rogilinkflex2_init();
@@ -14,37 +22,42 @@ void test_setup() {
     rogilinkflex2_register_device(2, DEVICE_ROBOMASTER, nullptr, 0, 3);
     rogilinkflex2_register_device(3, DEVICE_SENSOR_TEMP, nullptr, 0, 4);
     
-    // Send startup message to indicate HAL is ready - COMMENTED OUT FOR DEBUGGING
-    // const char* startup_msg = "{\"type\":\"startup\",\"status\":\"ready\",\"devices\":[0,1,2,3]}\n";
-    // HAL_UART_Transmit(&huart2, (uint8_t*)startup_msg, strlen(startup_msg), HAL_MAX_DELAY);
+    // Send startup debug message
+    send_debug_message("HAL initialized and ready");
 }
 
 void test_loop() {
-    volatile static uint32_t last_test_time = 0;    // DEBUG: Line 23
-    volatile static uint8_t test_phase = 0;         // DEBUG: Line 24  
-    volatile uint32_t current_time = HAL_GetTick(); // DEBUG: Line 25
+    volatile static uint32_t last_test_time = 0;
+    volatile static uint8_t test_phase = 0;
+    volatile uint32_t current_time = HAL_GetTick();
     
-    // Process RogiLinkFlex2 communication - COMMENTED OUT FOR DEBUGGING
-    // rogilinkflex2_process();
+    // Process RogiLinkFlex2 communication
+    rogilinkflex2_process();
     
     // Send periodic test data every 5 seconds to demonstrate functionality
     if (current_time - last_test_time >= 5000) {
         switch (test_phase) {
             case 0:
                 // Send test read response
+                send_debug_message("Sending test read response");
+                HAL_Delay(10); // Small delay between transmissions
                 uart_send_response(0, "angle", 45.5f, "success");
                 break;
             case 1:
-                // Send test periodic data
+                // Send smaller test periodic data (reduced from 4 devices to 2)
                 {
+                    send_debug_message("Sending test periodic data");
+                    HAL_Delay(10); // Small delay between transmissions
                     uint8_t device_ids[] = {0, 1};
                     float values[] = {30.0f, 25.5f, 35.0f, 28.0f}; // angle, speed for each device
                     const char data_names[2][16] = {"angle", "speed"};
-                    uart_send_periodic_data_multi("motor_angle_speed", 2, device_ids, data_names, values, 2);
+                    uart_send_periodic_data_multi("motor_data", 2, device_ids, data_names, values, 2);
                 }
                 break;
             case 2:
                 // Send temperature data
+                send_debug_message("Sending temperature data");
+                HAL_Delay(10); // Small delay between transmissions
                 uart_send_response(3, "temperature", 26.5f, "success");
                 break;
             default:
