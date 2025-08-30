@@ -1,0 +1,23 @@
+{
+  "type": "configuration",
+  "periodic_requests": [
+    {
+      "request": "motor_angle_speed", 
+      "instance_ids": [0, 1],
+      "data_names": ["angle", "speed"],
+      "interval_ms": 1000
+    },
+    {
+      "request": "sensor_data",
+      "instance_ids": [3],
+      "data_names": ["temperature"],
+      "interval_ms": 2000
+    },
+    {
+      "request": "robomaster_status",
+      "instance_ids": [2],
+      "data_names": ["angle", "speed", "current"],
+      "interval_ms": 1500
+    }
+  ]
+}

@@ -53,6 +53,9 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 file(GLOB_RECURSE USER_SOURCES Src/*.c Src/*.cpp)
 file(GLOB_RECURSE USER_LIB_SOURCES Lib/*/Src/*.c Lib/*/Src/*.cpp)
+# Exclude test files to avoid conflicts
+list(FILTER USER_SOURCES EXCLUDE REGEX ".*test.*")
+list(FILTER USER_LIB_SOURCES EXCLUDE REGEX ".*test.*")
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     ${USER_SOURCES}

@@ -325,9 +325,26 @@ void json_build_object_end(char *buffer, size_t buffer_size, int *pos) {
 }
 
 void json_build_array_start(char *buffer, size_t buffer_size, int *pos, const char *key) {
+    if (*pos >= (int)buffer_size - 1) return; // No space left
+    
+    // Add comma if not the first element (not immediately after opening brace)
+    if (*pos > 1 && buffer[*pos - 1] != '{') {
+        if (*pos < (int)buffer_size - 1) {
+            buffer[*pos] = ',';
+            (*pos)++;
+        } else {
+            return; // No space for comma
+        }
+    }
     int len = snprintf(buffer + *pos, buffer_size - *pos, "\"%s\":[", key);
-    if (len > 0 && *pos + len < (int)buffer_size) {
+    if (len > 0 && len < (int)(buffer_size - *pos)) {
         *pos += len;
+    } else {
+        // Truncated - rollback comma if we added one
+        if (*pos > 1 && buffer[*pos - 1] == ',') {
+            (*pos)--;
+            buffer[*pos] = '\0';
+        }
     }
 }
 
@@ -340,43 +357,76 @@ void json_build_array_end(char *buffer, size_t buffer_size, int *pos) {
 
 void json_build_string(char *buffer, size_t buffer_size, int *pos,
                       const char *key, const char *value) {
-    if (*pos > 1) {  // Add comma if not first element
+    if (*pos >= (int)buffer_size - 1) return; // No space left
+    
+    // Add comma if not the first element (not immediately after opening brace)
+    if (*pos > 1 && buffer[*pos - 1] != '{') {
         if (*pos < (int)buffer_size - 1) {
             buffer[*pos] = ',';
             (*pos)++;
+        } else {
+            return; // No space for comma
         }
     }
     int len = snprintf(buffer + *pos, buffer_size - *pos, "\"%s\":\"%s\"", key, value);
-    if (len > 0 && *pos + len < (int)buffer_size) {
+    if (len > 0 && len < (int)(buffer_size - *pos)) {
         *pos += len;
+    } else {
+        // Truncated - rollback comma if we added one
+        if (*pos > 1 && buffer[*pos - 1] == ',') {
+            (*pos)--;
+            buffer[*pos] = '\0';
+        }
     }
 }
 
 void json_build_int(char *buffer, size_t buffer_size, int *pos,
                    const char *key, int value) {
-    if (*pos > 1) {  // Add comma if not first element
+    if (*pos >= (int)buffer_size - 1) return; // No space left
+    
+    // Add comma if not the first element (not immediately after opening brace)
+    if (*pos > 1 && buffer[*pos - 1] != '{') {
         if (*pos < (int)buffer_size - 1) {
             buffer[*pos] = ',';
             (*pos)++;
+        } else {
+            return; // No space for comma
         }
     }
     int len = snprintf(buffer + *pos, buffer_size - *pos, "\"%s\":%d", key, value);
-    if (len > 0 && *pos + len < (int)buffer_size) {
+    if (len > 0 && len < (int)(buffer_size - *pos)) {
         *pos += len;
+    } else {
+        // Truncated - rollback comma if we added one
+        if (*pos > 1 && buffer[*pos - 1] == ',') {
+            (*pos)--;
+            buffer[*pos] = '\0';
+        }
     }
 }
 
 void json_build_float(char *buffer, size_t buffer_size, int *pos,
                      const char *key, float value) {
-    if (*pos > 1) {  // Add comma if not first element
+    if (*pos >= (int)buffer_size - 1) return; // No space left
+    
+    // Add comma if not the first element (not immediately after opening brace)
+    if (*pos > 1 && buffer[*pos - 1] != '{') {
         if (*pos < (int)buffer_size - 1) {
             buffer[*pos] = ',';
             (*pos)++;
+        } else {
+            return; // No space for comma
         }
     }
     int len = snprintf(buffer + *pos, buffer_size - *pos, "\"%s\":%.2f", key, value);
-    if (len > 0 && *pos + len < (int)buffer_size) {
+    if (len > 0 && len < (int)(buffer_size - *pos)) {
         *pos += len;
+    } else {
+        // Truncated - rollback comma if we added one
+        if (*pos > 1 && buffer[*pos - 1] == ',') {
+            (*pos)--;
+            buffer[*pos] = '\0';
+        }
     }
 }
 
@@ -389,7 +439,7 @@ void json_build_bool(char *buffer, size_t buffer_size, int *pos,
         }
     }
     int len = snprintf(buffer + *pos, buffer_size - *pos, "\"%s\":%s", key, value ? "true" : "false");
-    if (len > 0 && *pos + len < (int)buffer_size) {
+    if (len > 0 && *pos + len <= (int)buffer_size - 1) {
         *pos += len;
     }
 }

@@ -105,7 +105,7 @@ void initialize_all_device_handles(void) {
 }
 
 // CAN receive callback for Robomaster feedback
-extern "C" void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     CAN_RxHeaderTypeDef rx_header;
     uint8_t rx_data[8];
     

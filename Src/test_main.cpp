@@ -14,18 +14,18 @@ void test_setup() {
     rogilinkflex2_register_device(2, DEVICE_ROBOMASTER, nullptr, 0, 3);
     rogilinkflex2_register_device(3, DEVICE_SENSOR_TEMP, nullptr, 0, 4);
     
-    // Send startup message to indicate HAL is ready - COMMENTED OUT FOR DEBUGGING
-    // const char* startup_msg = "{\"type\":\"startup\",\"status\":\"ready\",\"devices\":[0,1,2,3]}\n";
-    // HAL_UART_Transmit(&huart2, (uint8_t*)startup_msg, strlen(startup_msg), HAL_MAX_DELAY);
+    // Send startup message to indicate HAL is ready
+    const char* startup_msg = "{\"type\":\"startup\",\"status\":\"ready\",\"devices\":[0,1,2,3]}\n";
+    HAL_UART_Transmit(&huart2, (uint8_t*)startup_msg, strlen(startup_msg), HAL_MAX_DELAY);
 }
 
 void test_loop() {
-    volatile static uint32_t last_test_time = 0;    // DEBUG: Line 23
-    volatile static uint8_t test_phase = 0;         // DEBUG: Line 24  
-    volatile uint32_t current_time = HAL_GetTick(); // DEBUG: Line 25
+    static uint32_t last_test_time = 0;
+    static uint8_t test_phase = 0;
+    uint32_t current_time = HAL_GetTick();
     
-    // Process RogiLinkFlex2 communication - COMMENTED OUT FOR DEBUGGING
-    // rogilinkflex2_process();
+    // Process RogiLinkFlex2 communication
+    rogilinkflex2_process();
     
     // Send periodic test data every 5 seconds to demonstrate functionality
     if (current_time - last_test_time >= 5000) {

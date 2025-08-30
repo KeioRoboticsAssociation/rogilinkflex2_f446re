@@ -12,7 +12,7 @@ extern "C" {
 // Maximum number of devices and configurations
 #define MAX_DEVICES 32
 #define MAX_PERIODIC_REQUESTS 16
-#define MAX_JSON_SIZE 1024
+#define MAX_JSON_SIZE 2048
 #define UART_BUFFER_SIZE 2048
 
 // Device types

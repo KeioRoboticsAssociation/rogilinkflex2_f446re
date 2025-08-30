@@ -38,7 +38,7 @@ void rogilinkflex2_init(void) {
     periodic_task_init();
     
     // Initialize device handles and register devices with actual handles
-    initialize_all_device_handles();
+    // initialize_all_device_handles();  // Commented out for testing with mock devices
 }
 
 void rogilinkflex2_process(void) {
@@ -71,9 +71,27 @@ device_instance_t* rogilinkflex2_get_device(uint8_t id) {
 }
 
 void uart_send_json(const char* json_str) {
-    // Send JSON string followed by newline
-    HAL_UART_Transmit(&huart2, (uint8_t*)json_str, strlen(json_str), HAL_MAX_DELAY);
-    HAL_UART_Transmit(&huart2, (uint8_t*)"\n", 1, HAL_MAX_DELAY);
+    // Ensure the JSON string is properly terminated
+    size_t json_len = strlen(json_str);
+    if (json_len == 0) {
+        return; // Don't send empty messages
+    }
+    
+    // Send JSON string followed by newline in one transmission
+    // Create a temporary buffer to hold JSON + newline
+    static char uart_tx_complete[MAX_JSON_SIZE + 2];
+    if (json_len < MAX_JSON_SIZE) {
+        memcpy(uart_tx_complete, json_str, json_len);
+        uart_tx_complete[json_len] = '\n';
+        uart_tx_complete[json_len + 1] = '\0';
+        
+        // Send the complete message in one UART transmission
+        HAL_UART_Transmit(&huart2, (uint8_t*)uart_tx_complete, json_len + 1, HAL_MAX_DELAY);
+    } else {
+        // Fallback for oversized messages
+        HAL_UART_Transmit(&huart2, (uint8_t*)json_str, json_len, HAL_MAX_DELAY);
+        HAL_UART_Transmit(&huart2, (uint8_t*)"\n", 1, HAL_MAX_DELAY);
+    }
 }
 
 void uart_receive_process(void) {
@@ -92,6 +110,9 @@ void uart_send_response(uint8_t device_id, const char* data_type, float value, c
     char json_buffer[MAX_JSON_SIZE];
     int pos = 0;
     
+    // Initialize buffer
+    memset(json_buffer, 0, MAX_JSON_SIZE);
+    
     json_build_object_start(json_buffer, MAX_JSON_SIZE, &pos);
     json_build_string(json_buffer, MAX_JSON_SIZE, &pos, "type", "read_response");
     json_build_int(json_buffer, MAX_JSON_SIZE, &pos, "id", device_id);
@@ -100,7 +121,44 @@ void uart_send_response(uint8_t device_id, const char* data_type, float value, c
     json_build_string(json_buffer, MAX_JSON_SIZE, &pos, "status", status);
     json_build_object_end(json_buffer, MAX_JSON_SIZE, &pos);
     
-    uart_send_json(json_buffer);
+    // Ensure buffer is null-terminated
+    if (pos < MAX_JSON_SIZE) {
+        json_buffer[pos] = '\0';
+    } else {
+        json_buffer[MAX_JSON_SIZE - 1] = '\0';
+        pos = MAX_JSON_SIZE - 1;
+    }
+    
+    // Validate JSON structure before sending
+    bool json_valid = false;
+    if (pos >= 10) {
+        // Check if JSON structure is complete
+        int last_char_pos = pos - 1;
+        while (last_char_pos >= 0 && (json_buffer[last_char_pos] == '\0' || json_buffer[last_char_pos] == ' ')) {
+            last_char_pos--;
+        }
+        
+        if (last_char_pos >= 0 && json_buffer[last_char_pos] == '}') {
+            // Also check for required fields
+            if (json_buffer[0] == '{' && 
+                strstr(json_buffer, "\"type\":") != NULL &&
+                strstr(json_buffer, "\"id\":") != NULL &&
+                strstr(json_buffer, "\"value\":") != NULL) {
+                json_valid = true;
+            }
+        }
+    }
+    
+    if (json_valid) {
+        uart_send_json(json_buffer);
+    } else {
+        // Send a simple error response instead of incomplete JSON
+        char error_buffer[256];
+        snprintf(error_buffer, sizeof(error_buffer), 
+                "{\"type\":\"error\",\"message\":\"Response too large\",\"device_id\":%d}", 
+                device_id);
+        uart_send_json(error_buffer);
+    }
 }
 
 void uart_send_periodic_data_multi(const char* request_name, uint8_t device_count,
@@ -109,40 +167,120 @@ void uart_send_periodic_data_multi(const char* request_name, uint8_t device_coun
     char json_buffer[MAX_JSON_SIZE];
     int pos = 0;
     
+    // Initialize buffer
+    memset(json_buffer, 0, MAX_JSON_SIZE);
+    
+    // Build JSON using the reliable JSON builder functions
     json_build_object_start(json_buffer, MAX_JSON_SIZE, &pos);
     json_build_string(json_buffer, MAX_JSON_SIZE, &pos, "type", "periodic_data");
     json_build_string(json_buffer, MAX_JSON_SIZE, &pos, "request", request_name);
     json_build_array_start(json_buffer, MAX_JSON_SIZE, &pos, "data");
     
+    uint8_t devices_processed = 0;
     for (uint8_t i = 0; i < device_count; i++) {
-        if (pos < MAX_JSON_SIZE - 100) {  // Safety check
-            if (i > 0) {
-                json_buffer[pos++] = ',';
+        // Calculate space needed for this device entry (more accurate estimate)
+        int space_needed = 50 + (data_count * 25); // Base + data fields
+        if (pos + space_needed + 20 >= MAX_JSON_SIZE) { // Extra safety margin
+            break; // Stop if we don't have enough space
+        }
+        
+        // Add comma separator between array elements
+        if (devices_processed > 0) {
+            json_buffer[pos++] = ',';
+        }
+        
+        // Start device object
+        json_buffer[pos++] = '{';
+        
+        // Add device ID
+        int len = snprintf(json_buffer + pos, MAX_JSON_SIZE - pos - 10, "\"id\":%d", device_ids[i]);
+        if (len > 0 && pos + len < MAX_JSON_SIZE - 10) {
+            pos += len;
+        } else {
+            // Rollback - remove the opening brace
+            pos--;
+            if (devices_processed > 0) pos--; // Also remove comma
+            break;
+        }
+        
+        // Add data values for this device
+        uint8_t fields_added = 0;
+        for (uint8_t j = 0; j < data_count; j++) {
+            // Check if we have space for this field (more conservative)
+            if (pos + 30 >= MAX_JSON_SIZE) {
+                break;
             }
-            json_buffer[pos++] = '{';
             
-            // Add device ID
-            int len = snprintf(json_buffer + pos, MAX_JSON_SIZE - pos, "\"id\":%d", device_ids[i]);
-            if (len > 0 && pos + len < MAX_JSON_SIZE) pos += len;
+            // Add comma before field
+            json_buffer[pos++] = ',';
             
-            // Add data values
-            for (uint8_t j = 0; j < data_count; j++) {
-                if (pos < MAX_JSON_SIZE - 50) {
-                    json_buffer[pos++] = ',';
-                    len = snprintf(json_buffer + pos, MAX_JSON_SIZE - pos, "\"%s\":%.2f", 
-                                  data_names[j], values[i * data_count + j]);
-                    if (len > 0 && pos + len < MAX_JSON_SIZE) pos += len;
-                }
+            // Add the data field with bounds checking
+            len = snprintf(json_buffer + pos, MAX_JSON_SIZE - pos - 10, "\"%s\":%.2f", 
+                          data_names[j], values[i * data_count + j]);
+            if (len > 0 && pos + len < MAX_JSON_SIZE - 10) {
+                pos += len;
+                fields_added++;
+            } else {
+                // Rollback - remove the comma
+                pos--;
+                break;
             }
-            
+        }
+        
+        // Only close device object if we added at least some fields
+        if (fields_added > 0) {
             json_buffer[pos++] = '}';
+            devices_processed++;
+        } else {
+            // Rollback the entire device entry
+            // Find the start of this device entry and remove it
+            while (pos > 0 && json_buffer[pos-1] != '{') pos--;
+            if (pos > 0) pos--; // Remove the opening brace
+            if (devices_processed > 0 && pos > 0) pos--; // Remove comma if not first
+            break;
         }
     }
     
+    // Close the JSON structure
     json_build_array_end(json_buffer, MAX_JSON_SIZE, &pos);
     json_build_object_end(json_buffer, MAX_JSON_SIZE, &pos);
     
-    uart_send_json(json_buffer);
+    // Ensure buffer is null-terminated and validate JSON structure
+    if (pos < MAX_JSON_SIZE) {
+        json_buffer[pos] = '\0';
+    } else {
+        json_buffer[MAX_JSON_SIZE - 1] = '\0';
+        pos = MAX_JSON_SIZE - 1;
+    }
+    
+    // Validate that JSON is properly closed before sending
+    bool json_valid = false;
+    if (devices_processed > 0 && pos >= 10) {
+        // Check if JSON structure is complete: should end with }
+        int last_char_pos = pos - 1;
+        while (last_char_pos >= 0 && (json_buffer[last_char_pos] == '\0' || json_buffer[last_char_pos] == ' ')) {
+            last_char_pos--;
+        }
+        
+        if (last_char_pos >= 0 && json_buffer[last_char_pos] == '}') {
+            // Also check that we have proper opening structure
+            if (json_buffer[0] == '{' && strstr(json_buffer, "\"type\":") != NULL) {
+                json_valid = true;
+            }
+        }
+    }
+    
+    // Only send if we have a complete and valid JSON structure
+    if (json_valid) {
+        uart_send_json(json_buffer);
+    } else {
+        // Send error message if JSON is incomplete or no devices could fit
+        if (devices_processed == 0) {
+            handle_communication_error("Periodic data too large for buffer");
+        } else {
+            handle_communication_error("JSON structure incomplete, data truncated");
+        }
+    }
 }
 
 void uart_send_periodic_data(const char* request_name, uint8_t device_count, 

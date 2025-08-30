@@ -40,7 +40,11 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
+CAN_HandleTypeDef hcan1;
+I2C_HandleTypeDef hi2c1;
+TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
 
